@@ -7,7 +7,7 @@ import random
 import serial
 import time
 
-ser = serial.Serial('/dev/cu.usbmodem2103', 115200, timeout=0.05)
+ser = serial.Serial('/dev/cu.usbmodem2103', 115200, timeout=0.05) # Use the name of the serial port
 
 # Constants
 dt          = 0.01     # Timestep [s]
@@ -47,7 +47,6 @@ hover_motor = (drone_mass * g / 4.0) / k_thrust
 m1 = m2 = m3 = m4 = hover_motor
 
 # Realistic max motor command: ~3x hover gives plenty of control headroom
-# without entering wildly nonphysical territory (fix #10).
 M_MIN, M_MAX = 0.0, 3.0 * hover_motor
 saturated_warned = False
 
@@ -118,12 +117,10 @@ while t < time_total:
     raw_pitch = 0.0 if t < 2 else np.deg2rad(25)
     raw_yaw   = 0.0 
 
-    # Clamp tilt setpoints to the controller's valid envelope (fix #21).
     # Yaw is intentionally not clamped — heading can be any angle.
     raw_roll  = float(np.clip(raw_roll,  -MAX_TILT, MAX_TILT))
     raw_pitch = float(np.clip(raw_pitch, -MAX_TILT, MAX_TILT))
 
-    # Slew-limited setpoint — what the controller actually sees (fix #20).
     # Each axis can change at most MAX_SLEW * dt radians per tick.
     target_roll  += np.clip(raw_roll  - target_roll,  -MAX_SLEW*dt, MAX_SLEW*dt)
     target_pitch += np.clip(raw_pitch - target_pitch, -MAX_SLEW*dt, MAX_SLEW*dt)
