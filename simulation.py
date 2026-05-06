@@ -7,7 +7,7 @@ import random
 import serial
 import time
 
-ser = serial.Serial('/dev/cu.usbmodem2103', 115200, timeout=0.05) # Use the name of the serial port
+ser = serial.Serial('/dev/cu.usbmodem2103', 115200, timeout=0.05) # Use the name of your serial port
 
 # Constants
 dt          = 0.01     # Timestep [s]
