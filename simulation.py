@@ -1,60 +1,61 @@
+# simulation.py
+# software-in-the-loop test rig
+# simulates the drone's physics, talks to the firmware over serial
+
 import numpy as np
 import matplotlib.pyplot as plt
 import math
 import random
-# from noise import imuNoise, bias_instability  # only needed if noise is enabled
+# from noise import imuNoise, bias_instability  # optional - if we add IMU noise later
 
 import serial
 import time
 
-ser = serial.Serial('/dev/cu.usbmodem2103', 115200, timeout=0.05) # Use the name of your serial port
+ser = serial.Serial('/dev/cu.usbmodem2103', 115200, timeout=0.05) # change the port to match your machine
 
-# Constants
-dt          = 0.01     # Timestep [s]
-time_total  = 20      # Time limit [s]
+# simulation timing
+dt          = 0.01     # timestep in seconds (100 Hz)
+time_total  = 10       # how long to run
 
-drone_mass  = 4.0      # [kg]   matches motor_mixer.c
-g           = 9.81     # [m/s^2]
-L           = 0.5      # arm length from frame centre to a motor [m]
-arm_x       = L / np.sqrt(2)   # X-config: each motor sits at (±arm_x, ±arm_x)
+# drone physical constants - must match motor_mixer.c
+drone_mass  = 4.0      # kg
+g           = 9.81     # m/s^2
+L           = 0.5      # arm length, centre to motor, in metres
+arm_x       = L / np.sqrt(2)   # in X-config each motor is at (+/- arm_x, +/- arm_x)
 
-Ix = Iy     = drone_mass * L * L / 2.0  # rough estimate
+# moments of inertia (rough estimates)
+Ix = Iy     = drone_mass * L * L / 2.0
 Iz          = 2.0 * Ix
 
-k_thrust    = 0.124    # T = k_thrust * motor_command  (matches motor_mixer.c k)
-k_yaw       = 0.01     # reaction-torque coefficient
+# motor model constants
+k_thrust    = 0.124    # thrust = k * command (command is omega^2, see motor_mixer.c)
+k_yaw       = 0.01     # yaw reaction torque coefficient - much weaker than the roll/pitch lever
 
-# Setpoint slew rate. Limits how fast the commanded angle can
-# change per second
+# setpoint slew rate - max change per second
 MAX_SLEW = np.deg2rad(90.0)
 
-# Maximum tilt setpoint. The complementary filter blends a gyro
-# integral (unbounded) with an atan2-derived accel angle (bounded to
-# ±pi). Near ±pi the accel value wraps and the blend stops tracking,
-# letting the drone spin freely while the firmware thinks it's at the
-# setpoint. Clamping the operator command well below that singularity
-# keeps every axis inside the regime where the single-loop PID is valid.
-# 60 deg is a typical "angle mode" tilt limit on real flight controllers.
+# max tilt setpoint - keep the controller in its linear regime
+# real flight controllers in "angle mode" cap at around this value
 MAX_TILT = np.deg2rad(60.0)
 
-# Slew-limited setpoints (the values actually sent to the firmware)
+# slew-limited setpoints - what the firmware actually sees
 target_roll  = 0.0
 target_pitch = 0.0
 target_yaw   = 0.0
 
-# Each motor must produce m*g/4 of thrust at hover.
-hover_motor = (drone_mass * g / 4.0) / k_thrust
+# motor commands - start at hover
+hover_motor = (drone_mass * g / 4.0) / k_thrust # each motor produces m*g/4 at hover
 m1 = m2 = m3 = m4 = hover_motor
 
-# Realistic max motor command: ~3x hover gives plenty of control headroom
+# motor command clamp - 3x hover gives plenty of headroom
 M_MIN, M_MAX = 0.0, 3.0 * hover_motor
-saturated_warned = False
+saturated_warned = False # only print the saturation warning once
 
-# State
+# physical state
 roll = pitch = yaw = 0.0
 wx = wy = wz = 0.0
 
-# Logging
+# log buffers - one entry per tick
 time_log         = []
 roll_log         = []
 pitch_log        = []
@@ -63,29 +64,27 @@ target_roll_log  = []
 target_pitch_log = []
 target_yaw_log   = []
 
-# Simulation loop
+
+# main simulation loop
 t = 0.0
 while t < time_total:
-    loop_start = time.time()
+    loop_start = time.time() # used for real-time pacing at the bottom
 
-    # Motor thrusts (linear model: T = k * m)
+    # motor thrusts (linear model: T = k * command)
     T1 = k_thrust * m1
     T2 = k_thrust * m2
     T3 = k_thrust * m3
     T4 = k_thrust * m4
 
-    # Motor layout and torque directions:
-    # M1 rear-left  (CCW)  M2 front-right (CCW)
-    # M3 rear-right (CW)   M4 front-left  (CW)
-    #
-    # Roll+ (right side up): right-side motors (M2, M3) up, left (M1, M4) down
-    # Pitch+ (nose up):      rear motors (M1, M3) up, front (M2, M4) down
-    # Yaw+ (CCW from above): CCW motors (M1, M2) up, CW motors (M3, M4) down
+    # body torques - signs follow the X-config layout in motor_mixer.c
+    # roll+ = right side up (M2, M3 push)
+    # pitch+ = nose up (M1, M3 push)
+    # yaw+ = CCW from above (M1, M2 push)
     roll_torque  = arm_x * ( (T2 + T3) - (T1 + T4) )
     pitch_torque = arm_x * ( (T1 + T3) - (T2 + T4) )
     yaw_torque   = k_yaw * ( (T1 + T2) - (T3 + T4) )
 
-    # Rigid-body rotational dynamics
+    # rigid-body rotational dynamics - integrate angular acceleration
     wx_dot = roll_torque  / Ix
     wy_dot = pitch_torque / Iy
     wz_dot = yaw_torque   / Iz
@@ -94,66 +93,68 @@ while t < time_total:
     wy += wy_dot * dt
     wz += wz_dot * dt
 
-    # The proper ZYX kinematic transformation
+    # convert body angular velocity to Euler angle rates (ZYX convention)
+    # must match the transformation in estimator.c
     sin_roll, cos_roll = np.sin(roll), np.cos(roll)
     sin_pitch, cos_pitch = np.sin(pitch), np.cos(pitch)
-    if abs(cos_pitch) < 0.017:                    # gimbal-lock guard, ±89°
+    if abs(cos_pitch) < 0.017: # gimbal lock guard
         cos_pitch = 0.017 if cos_pitch >= 0 else -0.017
     roll_dot  = wx + sin_roll * (sin_pitch/cos_pitch) * wy + cos_roll * (sin_pitch/cos_pitch) * wz
     pitch_dot = cos_roll * wy - sin_roll * wz
     yaw_dot   = (sin_roll/cos_pitch) * wy + (cos_roll/cos_pitch) * wz
 
+    # integrate Euler rates into Euler angles
     roll  += roll_dot  * dt
     pitch += pitch_dot * dt
     yaw   += yaw_dot   * dt
 
-    # Body-frame gravity vector (what an accelerometer reads at rest)
+    # what the accelerometer would read at this attitude (gravity in body frame)
     ax = -g * np.sin(pitch)
     ay =  g * np.sin(roll) * np.cos(pitch)
     az =  g * np.cos(roll) * np.cos(pitch)
 
-    # Raw (operator) setpoint — what the user wants:
-    raw_roll  = 0.0 if t < 2 else np.deg2rad(25)
-    raw_pitch = 0.0 if t < 2 else np.deg2rad(25)
-    raw_yaw   = 0.0 
+    # operator setpoint - what we want the drone to do
+    raw_roll  = 0.0 if t < 2 else np.deg2rad(60) # step at t = 2 s
+    raw_pitch = 0.0
+    raw_yaw   = 0.0 if t < 2 else np.deg2rad(60)
 
-    # Yaw is intentionally not clamped — heading can be any angle.
+    # clamp tilt setpoints to safe range (yaw is fine to be anything)
     raw_roll  = float(np.clip(raw_roll,  -MAX_TILT, MAX_TILT))
     raw_pitch = float(np.clip(raw_pitch, -MAX_TILT, MAX_TILT))
 
-    # Each axis can change at most MAX_SLEW * dt radians per tick.
+    # slew-limit the setpoint - max change per tick
     target_roll  += np.clip(raw_roll  - target_roll,  -MAX_SLEW*dt, MAX_SLEW*dt)
     target_pitch += np.clip(raw_pitch - target_pitch, -MAX_SLEW*dt, MAX_SLEW*dt)
     target_yaw   += np.clip(raw_yaw   - target_yaw,   -MAX_SLEW*dt, MAX_SLEW*dt)
 
-    # Send IMU + setpoints + dt
+    # build and send the IMU packet over serial
     packet = np.array([
-        wx, wy, wz,
-        ax, ay, az,
-        target_roll, target_pitch, target_yaw,
-        dt
+        wx, wy, wz,                                     # gyro
+        ax, ay, az,                                     # accel
+        target_roll, target_pitch, target_yaw,          # setpoints
+        dt                                              # timestep
     ], dtype=np.float32)
-    ser.write(b'IMU' + packet.tobytes())
+    ser.write(b'IMU' + packet.tobytes())                # 'IMU' header + 40 bytes of payload
 
-    # Receive motor commands
-    data = ser.read(16)  # 4 floats
+    # read the firmware's response (4 motor commands = 16 bytes)
+    data = ser.read(16)
     if len(data) == 16:
         m1, m2, m3, m4 = np.frombuffer(data, dtype=np.float32)
-    # else: keep previous m1..m4 and let the loop catch up
+    # else - timeout, keep the previous motor commands and let the next tick catch up
 
-  
+    # check for motor saturation - print a warning the first time it happens
     raw = np.array([m1, m2, m3, m4])
     if not saturated_warned and (np.any(raw < M_MIN) or np.any(raw > M_MAX)):
         print(f"[t={t:5.2f}s] motor saturation: {raw}  -> clamped to [{M_MIN:.1f}, {M_MAX:.1f}]")
         saturated_warned = True
+
+    # clamp motor commands to their physical range
     m1 = float(np.clip(m1, M_MIN, M_MAX))
     m2 = float(np.clip(m2, M_MIN, M_MAX))
     m3 = float(np.clip(m3, M_MIN, M_MAX))
     m4 = float(np.clip(m4, M_MIN, M_MAX))
 
-    print(m1, m2, m3, m4, t)  # for debugging
-
-    # Log
+    # log this tick
     time_log.append(t)
     roll_log.append(np.rad2deg(roll))
     pitch_log.append(np.rad2deg(pitch))
@@ -162,13 +163,14 @@ while t < time_total:
     target_pitch_log.append(np.rad2deg(target_pitch))
     target_yaw_log.append(np.rad2deg(target_yaw))
 
-    # Real-time pacing
+    # real-time pacing - sleep out the rest of the dt window
     elapsed = time.time() - loop_start
     time.sleep(max(0, dt - elapsed))
 
     t += dt
 
-# Plot
+
+# plotting - one subplot per axis, response vs target
 fig, axs = plt.subplots(3, 1, sharex=True, figsize=(8, 6))
 axs[0].plot(time_log, roll_log, label="roll"); axs[0].plot(time_log, target_roll_log, "--", label="target")
 axs[1].plot(time_log, pitch_log, label="pitch"); axs[1].plot(time_log, target_pitch_log, "--", label="target")
