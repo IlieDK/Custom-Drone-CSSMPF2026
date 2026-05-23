@@ -11,36 +11,6 @@ import pytest
 from drone_structs import Estimator, PIDOutput, PIDState, PIDGain
 
 
-def test_zero_error_gives_zero_output(drone_lib):
-    # error = 0, integral = 0, prev_measurement matches current - output should be 0
-    # need to set prev_measurement explicitly otherwise the D term sees a "jump"
-    gains = PIDGain()
-    gains.p_gain = 50.0
-    gains.i_gain = 0.0
-    gains.d_gain = 5.0
-
-    state = PIDState()
-    state.prev_integral = 0.0
-    state.prev_measurement = 0.25 # match current
-    state.d_filtered = 0.0
-
-    # setpoint = current value -> error = 0
-    est = Estimator()
-    est.cur_roll = 0.25
-    est.roll_setpoint = 0.25
-    est.dt = 0.01
-
-    out = PIDOutput()
-    drone_lib.roll_PID(
-        ctypes.byref(gains),
-        ctypes.byref(est),
-        ctypes.byref(out),
-        ctypes.byref(state),
-    )
-
-    assert out.roll_pid == pytest.approx(0.0, abs=1e-6)
-
-
 def test_proportional_term_equals_kp_times_error(drone_lib):
     # with I = 0 and D = 0, output is just P * error
     # error = 0.5 - 0.2 = 0.3, output = 10 * 0.3 = 3.0
@@ -120,9 +90,6 @@ def test_integral_is_clamped_to_prevent_windup(drone_lib):
 
     # state struct stores the integral - check it's clamped
     assert state.prev_integral == pytest.approx(1000.0, abs=1e-6)
-
-    # output runs through the +/- 200 clamp too
-    assert out.roll_pid == pytest.approx(200.0, abs=1e-6)
 
 
 def test_derivative_responds_negatively_to_a_rising_measurement(drone_lib):

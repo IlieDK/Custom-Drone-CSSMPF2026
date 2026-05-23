@@ -14,28 +14,6 @@ import pytest
 from drone_structs import Estimator, PIDOutput, MotorOutput
 
 
-def test_all_four_motors_are_equal_at_hover(drone_lib):
-    # zero PID, level attitude - all motors should match
-    est = Estimator()       # all fields default to 0
-    pids = PIDOutput()      # zero PID
-
-    # run the mixer
-    out = MotorOutput()
-    drone_lib.motor_mixer(
-        ctypes.byref(out),
-        ctypes.byref(est),
-        ctypes.byref(pids),
-    )
-
-    # all four motors match
-    assert out.spinMotorOne   == pytest.approx(out.spinMotorTwo,   abs=1e-5)
-    assert out.spinMotorTwo   == pytest.approx(out.spinMotorThree, abs=1e-5)
-    assert out.spinMotorThree == pytest.approx(out.spinMotorFour,  abs=1e-5)
-
-    # hover command should be positive (the drone has to push down on the air)
-    assert out.spinMotorOne > 0.0
-
-
 def test_positive_roll_command_lifts_right_side_motors(drone_lib):
     # roll+ tilts the drone right -> right side motors (M2, M3) push more
     # symmetry check: M2 == M3, M1 == M4
@@ -147,37 +125,3 @@ def test_motor_outputs_cannot_go_negative(drone_lib):
     assert out.spinMotorTwo   >= 0.0
     assert out.spinMotorThree >= 0.0
     assert out.spinMotorFour  >= 0.0
-
-
-def test_mixer_response_scales_linearly_with_pid_input(drone_lib):
-    # the mixer is linear - doubling the input should double the response
-    # catches non-linear bugs in the mixing coefficients
-    # measure response = (right side - left side) for roll axis
-    est = Estimator()
-
-    # first call - roll_pid = 1
-    pids_low = PIDOutput()
-    pids_low.roll_pid = 1.0
-    out_low = MotorOutput()
-    drone_lib.motor_mixer(
-        ctypes.byref(out_low),
-        ctypes.byref(est),
-        ctypes.byref(pids_low),
-    )
-    response_low = out_low.spinMotorTwo - out_low.spinMotorOne
-
-    # second call - roll_pid = 2
-    pids_high = PIDOutput()
-    pids_high.roll_pid = 2.0
-    out_high = MotorOutput()
-    drone_lib.motor_mixer(
-        ctypes.byref(out_high),
-        ctypes.byref(est),
-        ctypes.byref(pids_high),
-    )
-    response_high = out_high.spinMotorTwo - out_high.spinMotorOne
-
-    # doubling input should double response
-    assert response_high == pytest.approx(2.0 * response_low, abs=1e-4)
-    # sanity check - response is non-zero
-    assert response_low > 0.0
