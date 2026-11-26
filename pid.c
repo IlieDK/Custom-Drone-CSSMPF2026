@@ -1,5 +1,4 @@
-// pid.c
-// Created by Gabriel Kihara on 01/05/2026.
+
 // generic PID with anti-windup, output clamp, D-on-measurement, low-pass on D, yaw wrap
 
 #include "pid_motor_mixer.h"
