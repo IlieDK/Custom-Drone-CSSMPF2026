@@ -92,4 +92,4 @@ A few things that aren't obvious from the code:
 
 Team of five: Elena, Gabriel, Ilie, Vsevolod and Yeongyun.
 
-- **Ilie Baciu:** **TODO: your part**, e.g. the Python simulation (`simulation.py`), the Arduino entry point and serial protocol (`CSSMPF2026.ino`), and connecting everything into the closed loop.
+- **Ilie Baciu (Team Leader):** team coordination, PID development, simulation QC.
