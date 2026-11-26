@@ -4,7 +4,7 @@ A quadcopter attitude controller built as a Hardware-in-the-Loop (HIL) system: C
 
 The point of the HIL setup is that you can test and tune the actual firmware without crashing an actual drone.
 
-Team project for **TODO: full course name** (CSSMPF2026). Who did what is at the bottom.
+Team project for Computer Science Subject Module Project F2026 (CSSMPF2026). Who did what is at the bottom.
 
 ## How it works
 
