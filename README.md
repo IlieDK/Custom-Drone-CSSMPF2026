@@ -1,6 +1,6 @@
 # Custom Drone - CSSMPF2026
 
-A quadcopter attitude controller built as a Hardware-in-the-Loop (HIL) system: C firmware that runs on a microcontroller board (**TODO: exact board**), and a Python simulation that pretends to be the drone. The two talk to each other over a USB serial cable, so the real control code runs on real hardware while the "drone" lives entirely in software.
+A quadcopter attitude controller built as a Hardware-in-the-Loop (HIL) system: C firmware that runs on a microcontroller board STM32 NUCLEO-F446ZE, and a Python simulation that pretends to be the drone. The two talk to each other over a USB serial cable, so the real control code runs on real hardware while the "drone" lives entirely in software.
 
 The point of the HIL setup is that you can test and tune the actual firmware without crashing an actual drone.
 
