@@ -116,7 +116,7 @@ while t < time_total:
     # operator setpoint - what we want the drone to do
     raw_roll  = 0.0 if t < 2 else np.deg2rad(25)
     raw_pitch = 0.0
-    raw_yaw   = 0.0 
+    raw_yaw   = 0.0
 
     # clamp tilt setpoints to safe range (yaw is fine to be anything)
     raw_roll  = float(np.clip(raw_roll,  -MAX_TILT, MAX_TILT))
@@ -168,26 +168,6 @@ while t < time_total:
     time.sleep(max(0, dt - elapsed))
 
     t += dt
-
-
-# step response metrics - settling time, overshoot, RMSE per axis
-from data_collection import data_collection
-
-print()
-print("axis   | settling [s] | overshoot [%] | RMSE [rad]")
-print("-" * 50)
-for name, target_log_, actual_log_ in [
-    ("roll",  target_roll_log,  roll_log),
-    ("pitch", target_pitch_log, pitch_log),
-    ("yaw",   target_yaw_log,   yaw_log),
-]:
-    # convert back to radians - the logs are stored in degrees for the plot
-    s, o, r = data_collection(
-        np.deg2rad(target_log_),
-        np.deg2rad(actual_log_),
-        time_log,
-    )
-    print(f"{name:<6} | {s:>11.3f}  | {o:>12.2f}  | {r:>9.5f}")
 
 
 # plotting - one subplot per axis, response vs target
